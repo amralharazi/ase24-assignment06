@@ -1,5 +1,6 @@
 package de.unibayreuth.se.taskboard.data.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import de.unibayreuth.se.taskboard.business.domain.Task;
 import de.unibayreuth.se.taskboard.business.domain.TaskStatus;
 import de.unibayreuth.se.taskboard.business.exceptions.TaskNotFoundException;
@@ -7,6 +8,7 @@ import de.unibayreuth.se.taskboard.business.ports.TaskPersistenceService;
 import de.unibayreuth.se.taskboard.data.mapper.TaskEntityMapper;
 import de.unibayreuth.se.taskboard.data.persistence.EventEntity;
 import de.unibayreuth.se.taskboard.data.persistence.EventRepository;
+import de.unibayreuth.se.taskboard.data.persistence.TaskEntity;
 import de.unibayreuth.se.taskboard.data.persistence.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Primary;
@@ -27,6 +29,8 @@ public class TaskPersistenceServiceEventSourcingImpl implements TaskPersistenceS
     private final TaskRepository taskRepository;
     private final TaskEntityMapper taskEntityMapper;
     private final EventRepository eventRepository;
+    private final ObjectMapper objectMapper;
+
     @Override
     public void clear() {
         taskRepository.findAll()
@@ -81,7 +85,32 @@ public class TaskPersistenceServiceEventSourcingImpl implements TaskPersistenceS
         In both cases, it uses the EventRepository to log the changes and the TaskRepository to persist the task data.
         */
 
-        return new Task("title", "description");
+        if (task.getId() == null) {
+            final UUID id = UUID.randomUUID();
+            task.setId(id);
+            eventRepository.saveAndFlush(EventEntity.insertEventOf(task, id, objectMapper));
+            taskRepository.save(taskEntityMapper.toEntity(task));
+            return task;
+        } else {
+            Task existingTask = getById(task.getId())
+                    .orElseThrow(() -> new TaskNotFoundException("Task with id" + task.getId() + " not found."));
+
+            existingTask.setTitle(task.getTitle());
+            existingTask.setDescription(task.getDescription());
+            existingTask.setStatus(task.getStatus());
+            existingTask.setAssigneeId(task.getAssigneeId());
+
+            taskRepository.save(taskEntityMapper.toEntity(existingTask));
+
+            eventRepository.saveAndFlush(
+                    EventEntity.updateEventOf(
+                            task,
+                            task.getId(),
+                            objectMapper
+                    )
+            );
+            return existingTask;
+        }
     }
 
     @Override
@@ -96,5 +125,13 @@ public class TaskPersistenceServiceEventSourcingImpl implements TaskPersistenceS
         Checks if the task still exists in the taskRepository.
         If the task still exists, it throws an IllegalStateException indicating the task was not successfully deleted.
         */
+
+        Task existingTask = getById(id)
+                .orElseThrow(() -> new TaskNotFoundException(""));
+        eventRepository.saveAndFlush(EventEntity.deleteEventOf(existingTask, id));
+
+       if (getById(id).isPresent()) {
+           throw new IllegalStateException("Task with id " + id + " wasn't successfully deleted.");
+       }
     }
 }

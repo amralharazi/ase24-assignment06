@@ -1,5 +1,6 @@
 package de.unibayreuth.se.taskboard.data.mapper;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import de.unibayreuth.se.taskboard.business.domain.Task;
 import de.unibayreuth.se.taskboard.data.persistence.TaskEntity;
 import org.mapstruct.Mapper;

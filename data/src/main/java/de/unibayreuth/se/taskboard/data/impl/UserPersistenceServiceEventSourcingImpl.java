@@ -1,7 +1,10 @@
 package de.unibayreuth.se.taskboard.data.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import de.unibayreuth.se.taskboard.business.domain.Task;
 import de.unibayreuth.se.taskboard.business.domain.User;
 import de.unibayreuth.se.taskboard.business.exceptions.DuplicateNameException;
+import de.unibayreuth.se.taskboard.business.exceptions.TaskNotFoundException;
 import de.unibayreuth.se.taskboard.business.exceptions.UserNotFoundException;
 import de.unibayreuth.se.taskboard.business.ports.UserPersistenceService;
 import de.unibayreuth.se.taskboard.data.mapper.UserEntityMapper;
@@ -22,6 +25,7 @@ public class UserPersistenceServiceEventSourcingImpl implements UserPersistenceS
     private final UserRepository userRepository;
     private final UserEntityMapper userEntityMapper;
     private final EventRepository eventRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     public void clear() {
@@ -59,6 +63,28 @@ public class UserPersistenceServiceEventSourcingImpl implements UserPersistenceS
         If the user ID is not null, it updates the existing user by finding it in the repository, updating its fields, saving an update event, and returning the updated user.
         In both cases, it uses the EventRepository to log the changes and the UserRepository to persist the user data.
         */
-        return new User("Firstname Lastname");
+
+        if (user.getId() == null) {
+            final UUID id = UUID.randomUUID();
+            user.setId(id);
+            eventRepository.saveAndFlush(EventEntity.insertEventOf(user, id, objectMapper));
+            userRepository.saveAndFlush(userEntityMapper.toEntity(user));
+            return user;
+        } else {
+            User existingUser = getById(user.getId())
+                    .orElseThrow(() -> new UserNotFoundException("User with id" + user.getId() + " not found."));
+
+            existingUser.setName(user.getName());
+            userRepository.save(userEntityMapper.toEntity(user));
+
+            eventRepository.saveAndFlush(
+                    EventEntity.updateEventOf(
+                            user,
+                            user.getId(),
+                            objectMapper
+                    )
+            );
+            return existingUser;
+        }
     }
 }
